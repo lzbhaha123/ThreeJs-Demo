@@ -1,4 +1,3 @@
-Usage
 You need to run it on your local server. 
 For example,
 Open cmd and type:
