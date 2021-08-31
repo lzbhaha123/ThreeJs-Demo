@@ -1,0 +1,540 @@
+<html>
+<head></head>
+<body>
+<script src="js/ammo.js"></script>
+<script src="js/ammo.wasm.js"></script>
+<script src="js/three.js"></script>
+
+<script src="js/OrbitControls.js"></script>
+<script src="js/inflate.min.js"></script>
+<script src="js/FBXLoader.js"></script>
+<script src="js/PointerLockControls.js"></script>
+	<script src="js/WebGL.js"></script>	
+<script src="js/stats.min.js"></script>
+<script src="js/AmmoDebugDrawer.js"></script>
+
+<script src="packages/GeneralSetting.js"></script>
+<script>
+Ammo().then(function(Ammo) {
+//--parameters
+var moveSpeed = 20;
+var jump = false;
+var jumpForce = 1.5;
+var rotateSpeed = 0.05;
+var scene,camera,renderer;
+var rotatingY = 0;
+
+// physics---
+var clock = new THREE.Clock();
+var gravityConstant = - 45.8;
+var transformAux1 = new Ammo.btTransform();
+var collisionConfiguration,dispatcher,broadphase,solver,softBodySolver,physicsWorld;
+var margin = 0.05;
+var pos = new THREE.Vector3();
+var quat = new THREE.Quaternion();
+var rigidBodies = [];
+var stats;
+var textureLoader = new THREE.TextureLoader();
+//-----------
+// movement-------
+var moveX = 0;
+var moveZ = 0;
+var moveY = 0;
+//-----
+var raycaster = new THREE.Raycaster();
+var hits;
+var player;
+var playerGroup = new THREE.Group();
+var loader = new THREE.FBXLoader();
+
+var grounds = [];
+
+var playerShape;
+
+raycaster.ray.direction.set( 0, - 1, 0 );
+
+var rayGhost = new THREE.Raycaster();
+var ghost;
+rayGhost.ray.direction.set( 0,1,0); 
+var ghostHits;
+
+renderer = new THREE.WebGLRenderer({ antialias: true } );
+renderer.setSize(window.innerWidth,window.innerHeight);
+document.body.appendChild(renderer.domElement);
+scene = new THREE.Scene();
+camera = new THREE.PerspectiveCamera(45,window.innerWidth/window.innerHeight,1,1000);
+scene.add(camera);
+scene.background = new THREE.Color( 0xbfd1e5 );
+
+//initiate gravity
+
+stats = new Stats();
+stats.domElement.style.position = 'absolute';
+stats.domElement.style.top = '0px';
+document.body.appendChild( stats.domElement );
+
+physicsBase();
+createBuildings();
+
+var boxW = 3;var boxL = 3;var boxH = 3;var boxMass = 50;
+var cubeGeometry = new THREE.BoxBufferGeometry(boxW,boxL,boxH);
+var cubeMaterial = new THREE.MeshBasicMaterial({color:0xffffff});
+var cube = new THREE.Mesh(cubeGeometry,cubeMaterial);
+//cube.name = "player";
+cube.castShadow = true;
+cube.receiveShadow = true;
+textureLoader.load('image/box_texture.png',function (texture){
+	cube.material.map = texture;
+	cube.material.needsUpdate = true;
+});
+
+
+//cube.position.set(0,100,0);
+//scene.add(cube);
+var boxShape = new Ammo.btBoxShape(new Ammo.btVector3(boxW * 0.5, boxL * 0.5, boxH * 0.5));
+boxShape.setMargin(margin);
+pos.set(0,25,10); 
+quat.set(0,0,0,1);
+createRigidBody(cube,boxShape,boxMass,pos,quat);
+//cube.userData.physicsBody.setFriction(0.5);
+
+
+pos.set(0,0,0);
+quat.set(0,0,0,1);
+//var planeGeometry = new THREE.PlaneGeometry(30,5,30);
+var planeMaterial = new THREE.MeshBasicMaterial({color:0xffffff});
+var plane = createParalellepiped(300,5,300,0,pos,quat,planeMaterial);
+//scene.add(plane);
+textureLoader.load('image/grass.jpg',function (texture){
+	plane.material.map = texture;
+	plane.material.needsUpdate = true;
+});
+
+
+var light = new THREE.HemisphereLight( 0xffffff, 0x444444 );
+light.position.set( 0, 200, 0 );
+scene.add( light );
+
+grounds.push(plane);
+
+
+createPlayer();
+initInput();
+openDebug();
+//attackingJudgement();
+createTestLine();
+
+function initInput() {
+
+			window.addEventListener( 'keydown', function ( event ) {//console.log(event.keyCode);
+				switch ( event.keyCode ) {
+
+					// W
+					case 87:
+						moveZ = 1;
+						break;
+					// s
+					case 83:
+					
+						moveZ = -1;
+						break;
+					// A
+					case 65:
+					rotatingY = rotateSpeed;
+						//moveX = -moveSpeed;
+						break;
+					// d
+					case 68:
+					rotatingY = -rotateSpeed;
+						//moveX = moveSpeed;
+						break;
+					// space
+					case 32:
+						raycaster.ray.origin.copy( player.position );
+						
+						var isLand = false;
+						for(var i =0;i<grounds.length;i++){				
+							hits = raycaster.intersectObject(grounds[i]);
+							if(hits[0]!=null){
+							
+								if(hits[0].distance<3){
+									isLand = true;	
+								}
+							}
+							
+						}
+						if(isLand){
+							moveY = jumpForce;
+						}
+						break;
+						// left
+					case 37:
+						rotatingY = rotateSpeed;
+						
+						
+						break;
+						//right
+					case 39:
+						rotatingY = -rotateSpeed;
+						
+				
+						break;
+					case 74: //j
+						 attackingJudgement();
+						break;
+				}
+
+			}, false );
+
+			window.addEventListener( 'keyup', function (event) {
+				if(event.keyCode==65||event.keyCode==68){
+					rotatingY = 0;
+				}
+				if(event.keyCode==32){
+					moveY = 0;
+					jumpTime = 0;
+				}
+				if(event.keyCode==87||event.keyCode==83){
+					moveX = moveZ = 0;
+				}
+				if(event.keyCode==74){
+					physicsWorld.removeCollisionObject(ghost);
+					ghost = null;
+				}
+				
+				
+			}, false );
+
+		}
+
+
+var render = function(){
+	renderer.render(scene,camera);
+	var deltaTime = clock.getDelta();
+	if ( mixer ) mixer.update( deltaTime );
+	if (debug) debug.update();
+	updatePhysics(deltaTime);
+};
+var update = function(){
+	var angle = player.rotation.y;
+
+	//var lVelocityX = Math.sin( angle* 60* Math.PI / 180 ) * 20;
+	//var lVelocityZ = Math.cos( angle*60 * Math.PI / 180 ) * 20;
+	var lVelocityX = Math.sin( angle )* 20;
+	var lVelocityZ = Math.cos( angle )* 20;
+	camera.position.set(player.position.x-lVelocityX,player.position.y+8,player.position.z-lVelocityZ);
+	//camera.position.set(player.position.x,player.position.y+10,player.position.z+20);
+	camera.lookAt(player.position);
+	
+	
+	//testLine.position=player.position;
+};
+
+var jumpTime = 0;
+function updatePhysics( deltaTime ){
+
+//cube.userData.physicsBody.setLinearVelocity(new Ammo.btVector3(0,cube.userData.physicsBody.getLinearVelocity().y(),0));
+	physicsWorld.stepSimulation( deltaTime, 10 );	
+	for(var i =0,il = rigidBodies.length;i<il;i++){
+		var threeObject = rigidBodies[i];
+		var objPhysics = threeObject.userData.physicsBody;
+		var ms = objPhysics.getMotionState();
+		if(ms){
+			ms.getWorldTransform(transformAux1);
+			
+			var p = transformAux1.getOrigin();
+			var q = transformAux1.getRotation();
+			if(threeObject.name == 'player'){ 
+				angle = threeObject.rotation.y;
+			
+				//var lVelocityX = Math.sin( angle*60 * Math.PI / 180 ) * 2;
+				var lVelocityY = objPhysics.getLinearVelocity().y();
+				//var lVelocityZ = Math.cos( angle*60 * Math.PI / 180 ) * 2;
+				var lVelocityX = Math.sin( angle )*moveSpeed;
+				var lVelocityZ = Math.cos( angle )*moveSpeed;
+				//var res = new Ammo.ClosestRayResultCallback(threeObject.position,plane.position); 
+				//collisionWorld.rayTestSingle(threeObject.position,plane.position,res);
+				//physicsWorld.rayTest(threeObject.position,plane.position,res);
+				//console.log(res.hasHit());
+				//if(res.hasHit()){
+					//console.log(res);	
+				//}
+				if(moveY == jumpForce){
+					jumpTime++;
+				}
+				if(jumpTime>14){
+					moveY = 0;
+				}
+				//var qy=q.y();
+			
+				if(moveX==0&&moveZ==0){
+
+					objPhysics.setLinearVelocity(new Ammo.btVector3(0,objPhysics.getLinearVelocity().y()+moveY,0));
+					//threeObject.rotation.y= 0;
+					
+					walkAction.stop();
+				}else{
+					//objPhysics.setLinearVelocity(new Ammo.btVector3(objPhysics.getLinearVelocity().x()+moveX,objPhysics.getLinearVelocity().y()+moveY,objPhysics.getLinearVelocity().z()+moveZ));
+					if(moveZ == 1){
+						objPhysics.setLinearVelocity(new Ammo.btVector3(lVelocityX,objPhysics.getLinearVelocity().y()+moveY,lVelocityZ));
+						
+						
+					}else if(moveZ == -1){
+						objPhysics.setLinearVelocity(new Ammo.btVector3(-lVelocityX,objPhysics.getLinearVelocity().y()+moveY,-lVelocityZ));
+					}
+					
+					walkAction.play();
+					//console.log(lVelocityX);
+				}	
+				threeObject.position.set( p.x(), p.y(), p.z() );
+				//threeObject.quaternion.set(q.x(), q.y(),q.z(), q.w() );
+				
+				//threeObject.rotation.x = 0;threeObject.rotation.z = 0;
+				
+				objPhysics.setSleepingThresholds(0.0,0.0);
+				objPhysics.setAngularFactor(0.0);
+				
+				threeObject.rotation.y += rotatingY;
+				playerMesh.position.copy( player.position);
+				if(ghost){
+				//	ghost.setWorldTransform(new Ammo.btTransform(new Ammo.btQuaternion(0,0,0,1),new Ammo.btVector3(0,3,0)));
+					ghost.setWorldTransform(new Ammo.btTransform(new Ammo.btQuaternion(q.x(),q.x(),q.z(),q.w()),new Ammo.btVector3(playerMesh.position.x+lVelocityX*0.3,playerMesh.position.y-5,playerMesh.position.z+lVelocityZ*0.3)));
+					
+				}
+			}else if(threeObject.name == 'enemy'){
+				objPhysics.setSleepingThresholds(0.0,0.0);
+				objPhysics.setAngularFactor(0.0);
+				threeObject.position.set( p.x(), p.y(), p.z() );	
+				threeObject.quaternion.set( q.x(), q.y(), q.z(), q.w() );
+				enemyMesh.position.copy( enemy.position);
+				enemyMesh.position.y += 3;
+				enemyMesh.position.x += 2;
+			}else{
+				threeObject.position.set( p.x(), p.y(), p.z() );	
+				threeObject.quaternion.set( q.x(), q.y(), q.z(), q.w() );
+			}
+			
+		
+		}
+	}
+		if(ghost){
+			rayGhost.ray.origin.copy( new THREE.Vector3(ghost.getWorldTransform().getOrigin().x(),ghost.getWorldTransform().getOrigin().y(),ghost.getWorldTransform().getOrigin().z()) );
+			ghostHits = rayGhost.intersectObject(enemyMesh);	
+			if(ghostHits.length>0){
+				console.log(ghostHits[0].distance);
+			}	
+		}
+	
+			 
+		
+}
+
+var gameLoop = function(){
+	requestAnimationFrame(gameLoop);
+	render();
+	update();
+	stats.update();
+};
+gameLoop();
+var apartment;
+function createBuildings(){
+		
+	var apartmentW = 5;var apartmentL = 4;var apartmentH = 8;var apartmentMass = 2000;
+	var apartmentGeometry = new THREE.BoxBufferGeometry(apartmentW,apartmentL,apartmentH);
+	var apartmentMaterial = new THREE.MeshBasicMaterial({color:0xffffff});
+	apartment = new THREE.Mesh(apartmentGeometry,apartmentMaterial);
+	apartment.castShadow = true;
+	apartment.receiveShadow = true;
+
+
+	//cube.position.set(0,100,0);
+	//scene.add(cube);
+	var apartmentShape = new Ammo.btBoxShape(new Ammo.btVector3(apartmentW * 0.5, apartmentL * 0.5, apartmentH * 0.5));
+	apartmentShape.setMargin(margin);
+	pos.set(5,4,5);
+	quat.set(0,0,0,1);
+	createRigidBody(apartment,apartmentShape,apartmentMass,pos,quat);
+	
+	apartment.userData.physicsBody.setFriction(0.5);
+	apartment.userData.physicsBody.setMassProps(0.0, new Ammo.btVector3(0,0,0));
+	grounds.push(apartment);
+}
+function physicsBase(){
+	collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();//btSoftBodyRigidBodyCollisionConfiguration
+	dispatcher = new Ammo.btCollisionDispatcher(collisionConfiguration);
+	broadphase = new Ammo.btDbvtBroadphase();
+	solver = new Ammo.btSequentialImpulseConstraintSolver();
+	softBodySolver = new Ammo.btDefaultSoftBodySolver();
+	physicsWorld = new Ammo.btSoftRigidDynamicsWorld(dispatcher,broadphase,solver,collisionConfiguration,softBodySolver);
+	physicsWorld.setGravity(new Ammo.btVector3(0,gravityConstant,0));
+	physicsWorld.getWorldInfo().set_m_gravity(new Ammo.btVector3(0,gravityConstant,0));
+	//collisionWorld = new Ammo.btCollisionWorld(dispatcher,broadphase,collisionConfiguration);
+	createEnemy();
+}
+var enemyMesh;
+var enemy;
+function createEnemy(){
+	var playerRadius =5;
+	var playerHeight = 1;
+	var playerGeometry = new THREE.CylinderBufferGeometry( playerRadius, playerRadius, playerHeight+3,6 );
+	var playerMaterial = new THREE.MeshBasicMaterial( {visible:false} );//visible: false
+	enemyMesh = new THREE.Mesh( playerGeometry, playerMaterial );
+	scene.add(enemyMesh);
+
+	loader.load( 'model/tank.FBX', function ( object ) {
+					mixer = new THREE.AnimationMixer( object );
+					var playerRadius =5;
+					var playerHeight = 1;
+					var playerMass =100;
+					playerShape = new Ammo.btCompoundShape();
+					var playerCapsuleShape = new Ammo.btCapsuleShape(playerRadius,playerHeight);
+					var playerCapsulePosition = new Ammo.btTransform();
+					playerCapsulePosition.setIdentity();playerCapsulePosition.setOrigin(new Ammo.btVector3(1.5,5.5,0));
+					playerShape.addChildShape(playerCapsulePosition,playerCapsuleShape);
+					playerShape.setMargin(margin);
+					pos.set(-20,10,-10);
+					quat.set(0,0,0,1);
+					createRigidBody(object,playerShape,playerMass,pos,quat);  
+					object.userData.physicsBody.setFriction(1);
+					object.scale.set(0.05,0.05,0.05);
+					object.name = "enemy";
+					enemy = object;
+				} );
+	
+// model
+
+}
+function createParalellepiped( sx, sy, sz, mass, pos, quat, material ) {
+
+			var threeObject = new THREE.Mesh( new THREE.BoxBufferGeometry( sx, sy, sz, 1, 1, 1 ), material );
+			var shape = new Ammo.btBoxShape( new Ammo.btVector3( sx * 0.5, sy * 0.5, sz * 0.5 ) );
+			shape.setMargin( margin );
+
+			createRigidBody( threeObject, shape, mass, pos, quat );
+
+			return threeObject;
+
+		}
+
+function createRigidBody(threeObject,physicsShape,mass,pos,quat){
+
+
+	threeObject.position.copy(pos);
+	threeObject.quaternion.copy(quat);
+	var transform = new Ammo.btTransform();
+	transform.setIdentity();
+	transform.setOrigin(new Ammo.btVector3(pos.x,pos.y,pos.z));
+	transform.setRotation(new Ammo.btQuaternion(quat.x,quat.y,quat.z,quat.w));
+	var motionState = new Ammo.btDefaultMotionState(transform);
+	
+	var localInertia = new Ammo.btVector3(0,0,0);
+	physicsShape.calculateLocalInertia(mass,localInertia);
+	
+	var rbInfo = new Ammo.btRigidBodyConstructionInfo(mass,motionState,physicsShape,localInertia);
+	var body = new Ammo.btRigidBody(rbInfo);
+	threeObject.userData.physicsBody = body;
+	
+	scene.add(threeObject);
+	if(mass>0){
+		rigidBodies.push(threeObject);
+		body.setActivationState(4);
+	}
+	
+	
+	
+	physicsWorld.addRigidBody( body );
+	
+	
+	
+	
+}
+var walkAction;
+var mixer;
+var playerMesh;
+
+function createPlayer(){
+	var playerRadius =0.5;
+	var playerHeight = 3.5;
+	var playerGeometry = new THREE.CylinderBufferGeometry( playerRadius, playerRadius, playerHeight,3 );
+	var playerMaterial = new THREE.MeshBasicMaterial( {visible: false} );
+	playerMesh = new THREE.Mesh( playerGeometry, playerMaterial );
+	playerMesh.position.y = 5;
+	scene.add(playerMesh);
+
+	loader.load( 'model/JL.FBX', function ( object ) {
+					mixer = new THREE.AnimationMixer( object );
+					walkAction = mixer.clipAction( object.animations[ 0 ] );
+					//action.play();
+					
+					var playerMass = 20;
+					var playerShape = new Ammo.btCapsuleShape(playerRadius,playerHeight);
+					//var playerShape = new Ammo.btCylinderShape(new Ammo.btVector3(2,2,1));
+					//playerShape = new Ammo.btCompoundShape();
+					//var playerCapsuleShape = new Ammo.btCapsuleShape(playerRadius,playerHeight);
+					//var playerBoxShape = new Ammo.btBoxShape(new Ammo.btVector3(1,5,1));
+					//var playerCapsulePosition = new Ammo.btTransform();
+					//playerCapsulePosition.setIdentity();playerCapsulePosition.setOrigin(new Ammo.btVector3(0,0,0));
+					//var playerBoxPosition = new Ammo.btTransform();
+					//playerBoxPosition.setIdentity();playerBoxPosition.setOrigin(new Ammo.btVector3(0,0,0));
+					//playerShape.addChildShape(playerCapsulePosition,playerCapsuleShape);
+					//playerShape.addChildShape(playerBoxPosition,playerBoxShape);
+					playerShape.setMargin(margin);
+					pos.set(0,20,-50);
+					quat.set(0,0,0,1);
+					
+					createRigidBody(object,playerShape,playerMass,pos,quat);  
+					object.userData.physicsBody.setFriction(1);
+					player = object;
+					player.scale.set(0.05,0.05,0.05);
+					player.name = "player"
+					/*var bodyControl = new Ammo.btRigidBodyControl();
+					bodyControl.setSleepingThresholds(0.0,0.0);
+					bodyControl.setAngularFactor(0.0);
+					bodyControl.setRollingFriction(1);
+					bodyControl.setSpinningFriction(1);
+					player.addControl(bodyControl);*/
+					//player.setActivationState(DISABLE_DEACTIVATION);
+					//player.userData.physicsBody.setSleepingThresholds(0.0,0.0);
+					//player.userData.physicsBody.setAngularFactor(0.0);
+					//player.rotateOnAxis(new THREE.Vector3(0,0,0),90);
+				} );
+}
+
+
+function attackingJudgement(){
+	//ghostCallBack = new Ammo.btGhostPairCallback();
+	//var olpc = new Ammo.btOverlappingPairCache();
+	//physicsWorld.getBroadphase().getOverlappingPairCache();//.setInternalGhostPairCallback(ghostCallBack);
+	//broadphase.setInternalGhostPairCallback(ghostCallBack);
+	if(!ghost){
+		ghost = new Ammo.btGhostObject();
+		ghost.setCollisionShape(new Ammo.btSphereShape(0.3));
+		ghost.setWorldTransform(new Ammo.btTransform(new Ammo.btQuaternion(0,0,0,1),new Ammo.btVector3(0,3,0)));
+		ghost.setCollisionFlags(4);
+		physicsWorld.addCollisionObject( ghost );
+	}
+}
+
+var debug;
+function openDebug(){
+	
+
+	debug = new THREE.AmmoDebugDrawer(scene,physicsWorld);
+    debug.enable();
+	var mode = 1;
+    debug.setDebugMode(mode);
+}
+
+var testLine;
+function createTestLine(){
+	var lineShape = new THREE.BoxGeometry(0.1,0.1,10);
+	var lineMaterial = new THREE.MeshBasicMaterial({color: 0x00ff00});
+	testLine = new THREE.Mesh(lineShape,lineMaterial);
+	//ghost.getWorldTransform();
+	//testLine.position.y = ghost.getWorldTransform().getOrigin ().y();
+	scene.add(testLine);
+}
+});
+</script>
+</body>
+</html>
