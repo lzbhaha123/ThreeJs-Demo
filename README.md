@@ -1,6 +1,6 @@
 <p>You need to run it on your local server.</p> 
-<p>YFor example,</p> 
-<p>YOpen cmd and type:</p> 
-<p>Ynpm install --global http-server</p> 
-<p>YThen, enter the porject folder and type:</p> 
-<p>Yhttp-server</p> 
+<p>For example,</p> 
+<p>Open cmd and type:</p> 
+<p>npm install --global http-server</p> 
+<p>Then, enter the porject folder and type:</p> 
+<p>http-server</p> 
